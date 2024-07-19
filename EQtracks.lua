@@ -1,4 +1,4 @@
--- This script is a VLC media player extension for automatically saving and loading custom equalizer (EQ) settings for each track.
+-- This script is a VLC media player extension for automatically saving and loading custom equalizer (EQ) settings for each track - now with output profiles.
 -- When a track is played, the script saves the current preamp +EQ settings to a file specific to that track's URI.
 -- When the same track is played again, the script loads the previously saved EQ settings, applying them automatically.
 
@@ -9,6 +9,7 @@
 --    For Linux: /usr/share/vlc/lua/extensions/
 -- 2. Restart VLC media player.
 -- 3. Enable the "Custom Equalizer Settings" extension from the VLC menu: View > Custom Equalizer Settings.
+-- 4. Select Headphones or Speakers. Headphones are default.
 -- 4. Play a track and adjust the EQ settings as desired. The settings will be saved automatically.
 -- 5. When you play the same track again, the saved EQ settings will be loaded and applied automatically.
 
@@ -16,38 +17,52 @@ local current_track_uri = ""
 local last_eq_settings = ""
 local last_preamp_setting = ""
 local eq_directory = ""
+local profile = "headphones" -- Default profile
+local dlg = nil
 
+-- Descriptor for the VLC extension
 function descriptor()
     return {
         title = "Custom Equalizer Settings",
-        version = "1.0",
+        version = "1.2",
         capabilities = {"input-listener"}
     }
 end
 
+-- Initialize directories and load settings
 function activate()
     current_track_uri = ""
     eq_directory = vlc.config.userdatadir() .. "/eq_settings/"
     create_directory(eq_directory)
     load_eq_settings_once()
+    show_menu()
 end
 
+-- Clean up when deactivated
 function deactivate()
+    if dlg then
+        dlg:delete()
+        dlg = nil
+    end
 end
 
+-- Handle meta data changes
 function meta_changed()
     input_changed()
 end
 
+-- Handle input changes
 function input_changed()
     save_and_load_eq_settings_once()
 end
 
+-- Save and load EQ settings
 function save_and_load_eq_settings_once()
     save_eq_settings_if_changed()
     load_eq_settings_once()
 end
 
+-- Save EQ settings if they have changed
 function save_eq_settings_if_changed()
     local item = vlc.input.item()
     if item then
@@ -73,6 +88,7 @@ function save_eq_settings_if_changed()
     end
 end
 
+-- Load EQ settings
 function load_eq_settings_once()
     local item = vlc.input.item()
     if item then
@@ -111,11 +127,13 @@ function load_eq_settings_once()
     end
 end
 
+-- Get the path for the EQ settings file
 function get_eq_file_path(uri)
     local file_name = uri:gsub("[:/\\?%%*|\"<>]", "_")
-    return eq_directory .. file_name .. ".txt"
+    return eq_directory .. profile .. "_" .. file_name .. ".txt"
 end
 
+-- Create the directory if it doesn't exist
 function create_directory(path)
     local file_attr = vlc.io.open(path, "rb")
     if not file_attr then
@@ -125,12 +143,37 @@ function create_directory(path)
     end
 end
 
+-- Refresh the EQ sliders
 function refresh_eq_sliders()
     local aout = vlc.object.aout()
     if aout then
         vlc.var.trigger_callback(aout, "equalizer-bands")
         vlc.var.trigger_callback(aout, "equalizer-preamp")
     end
+end
+
+-- Show menu to switch between profiles
+function show_menu()
+    dlg = vlc.dialog("Custom Equalizer Settings")
+
+    dlg:add_label("Select EQ Profile:", 1, 1, 1, 1)
+    dlg:add_button("Headphones", switch_to_headphones, 1, 2, 1, 1)
+    dlg:add_button("Speakers", switch_to_speakers, 2, 2, 1, 1)
+    dlg:show()
+end
+
+-- Switch to headphones profile
+function switch_to_headphones()
+    profile = "headphones"
+    vlc.msg.info("Switched to headphones profile")
+    load_eq_settings_once() -- Reload settings for the new profile
+end
+
+-- Switch to speakers profile
+function switch_to_speakers()
+    profile = "speakers"
+    vlc.msg.info("Switched to speakers profile")
+    load_eq_settings_once() -- Reload settings for the new profile
 end
 
 
