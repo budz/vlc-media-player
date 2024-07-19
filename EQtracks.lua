@@ -1,5 +1,5 @@
 -- This script is a VLC media player extension for automatically saving and loading custom equalizer (EQ) settings for each track.
--- When a track is played, the script saves the current EQ settings to a file specific to that track's URI.
+-- When a track is played, the script saves the current preamp +EQ settings to a file specific to that track's URI.
 -- When the same track is played again, the script loads the previously saved EQ settings, applying them automatically.
 
 -- How to use this script:
@@ -14,6 +14,7 @@
 
 local current_track_uri = ""
 local last_eq_settings = ""
+local last_preamp_setting = ""
 local eq_directory = ""
 
 function descriptor()
@@ -53,11 +54,14 @@ function save_eq_settings_if_changed()
         local uri = item:uri()
         local eq_file_path = get_eq_file_path(uri)
         local bands = vlc.var.get(vlc.object.aout(), "equalizer-bands")
-        if bands ~= last_eq_settings then
+        local preamp = vlc.var.get(vlc.object.aout(), "equalizer-preamp")
+        if bands ~= last_eq_settings or preamp ~= last_preamp_setting then
             last_eq_settings = bands
+            last_preamp_setting = preamp
             local file, err = io.open(eq_file_path, "w")
             if file then
-                file:write(bands)
+                file:write("bands:" .. bands .. "\n")
+                file:write("preamp:" .. preamp .. "\n")
                 file:close()
                 vlc.msg.info("EQ settings saved to " .. eq_file_path)
             else
@@ -78,13 +82,23 @@ function load_eq_settings_once()
             local eq_file_path = get_eq_file_path(uri)
             local file, err = io.open(eq_file_path, "r")
             if file then
-                local content = file:read("*all")
+                local bands = nil
+                local preamp = nil
+                for line in file:lines() do
+                    if line:match("^bands:") then
+                        bands = line:gsub("bands:", "")
+                    elseif line:match("^preamp:") then
+                        preamp = line:gsub("preamp:", "")
+                    end
+                end
                 file:close()
-                if content then
-                    vlc.var.set(vlc.object.aout(), "equalizer-bands", content)
-                    vlc.var.set(vlc.object.aout(), "equalizer-preamp", 1) -- Ensures the equalizer is enabled
+                if bands and preamp then
+                    vlc.var.set(vlc.object.aout(), "equalizer-bands", bands)
+                    vlc.var.set(vlc.object.aout(), "equalizer-preamp", tonumber(preamp))
+                    refresh_eq_sliders()
                     vlc.msg.info("EQ settings loaded from " .. eq_file_path)
-                    last_eq_settings = content
+                    last_eq_settings = bands
+                    last_preamp_setting = preamp
                 else
                     vlc.msg.err("Error reading EQ settings from file: " .. eq_file_path)
                 end
@@ -110,4 +124,13 @@ function create_directory(path)
         file_attr:close()
     end
 end
+
+function refresh_eq_sliders()
+    local aout = vlc.object.aout()
+    if aout then
+        vlc.var.trigger_callback(aout, "equalizer-bands")
+        vlc.var.trigger_callback(aout, "equalizer-preamp")
+    end
+end
+
 
